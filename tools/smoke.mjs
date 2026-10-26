@@ -36,16 +36,10 @@ const page = await browser.newPage({ viewport: { width: 1280, height: 1100 } });
 page.setDefaultTimeout(10000);
 await blockExternal(page);
 const errors = [];
-// The editor page carries a strict CSP (meta tag), so parsing an EXPORTED page inside it -
-// which the hostile-document test does - reports inline-style refusals. That is expected: an
-// exported file is one self-contained document and carries its styles inline by design, which
-// is why HOSTING.md gives exported lists their own policy. Counted separately, not ignored.
-const inlineStyleNotices = [];
 page.on('console', (m) => {
   if (m.type() !== 'error') return;
   const where = m.location().url || '';
   if (where.includes('favicon')) return;
-  if (/Refused to apply inline style/.test(m.text())) { inlineStyleNotices.push(m.text().slice(0, 40)); return; }
   errors.push(`${m.text()} @ ${where}`);
 });
 page.on('pageerror', (e) => errors.push(String(e)));
@@ -230,7 +224,13 @@ const withCaption = await page.evaluate(async () => {
 check('caption renders into the exported image', withCaption.cappedBytes > 1000 && withCaption.cappedH >= withCaption.plainH, JSON.stringify(withCaption));
 
 // ---- security: hostile document must not become markup ----
-const hostile = await page.evaluate(async () => {
+// The exported page is built in the editor but parsed in a blank page with no policy. An exported
+// file carries its styles inline by design (HOSTING.md gives it its own policy), so parsing it
+// under the editor's style-src 'self' makes Chromium log a refusal per inline style. Those used
+// to be filtered out by matching the console text, and Chromium has since reworded it — so a
+// newer browser turned them into "console errors" while CI stayed green. Parsing elsewhere means
+// the editor logs nothing here, and any inline-style refusal it does log is a real failure.
+const hostileBuilt = await page.evaluate(async () => {
   const s = await import('../src/core/schema.js');
   const r = await import('../src/render/page.js');
   const doc = s.createDoc({
@@ -244,7 +244,10 @@ const hostile = await page.evaluate(async () => {
       note: '</script><script>window.__pwned=5</script>',
     }],
   });
-  const html = r.pageHtml(doc);
+  return { html: r.pageHtml(doc), pwned: window.__pwned || null };
+});
+const parsePage = await browser.newPage();
+const hostile = await parsePage.evaluate((html) => {
   // Render it in a detached document to see whether anything executable survives.
   const parsed = new DOMParser().parseFromString(html, 'text/html');
   return {
@@ -257,7 +260,9 @@ const hostile = await page.evaluate(async () => {
     tierColor: parsed.querySelector('.bt-rowlabel')?.getAttribute('style'),
     pwned: window.__pwned || null,
   };
-});
+}, hostileBuilt.html);
+await parsePage.close();
+hostile.pwned = hostileBuilt.pwned || hostile.pwned;
 check('hostile title/byline/note produce no executable script', hostile.scriptTags.every((t) => t === 'application/json'), JSON.stringify(hostile.scriptTags));
 check('no event-handler attributes survive', hostile.onAttrs === 0);
 check('javascript: href dropped from export', hostile.hrefs.length === 0, JSON.stringify(hostile.hrefs));
@@ -301,7 +306,6 @@ check('a cover that cannot be decoded fails soft', storeResult.refused === 'fail
 check('store reports its size', storeResult.count === 1 && storeResult.bytes > 0, `${storeResult.count} covers, ${storeResult.bytes}b`);
 
 check('no console errors', errors.length === 0, errors.join(' | '));
-check('inline-style notices come only from parsing the exported page', inlineStyleNotices.length <= 2, `${inlineStyleNotices.length} notices`);
 check('exported page carries its styles inline by design', /<style>/.test(hostile.html) && /style="background:/.test(hostile.html));
 
 const pngResult = await page.evaluate(async () => {

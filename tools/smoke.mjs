@@ -316,10 +316,21 @@ const pngResult = await page.evaluate(async () => {
   });
   const { blob, width, height, missing } = await toPng(doc, { scale: 1 });
   const head = new Uint8Array(await blob.slice(0, 8).arrayBuffer());
-  return { bytes: blob.size, type: blob.type, width, height, missing: missing.length, magic: [...head].join(',') };
+  // The Reddit image: JPEG, and it steps quality down to meet a byte cap.
+  const big = await toPng(doc, { scale: 1, type: 'image/jpeg' });
+  const capped = await toPng(doc, { scale: 1, type: 'image/jpeg', maxBytes: big.blob.size - 1 });
+  const jpegHead = new Uint8Array(await big.blob.slice(0, 3).arrayBuffer());
+  return {
+    bytes: blob.size, type: blob.type, width, height, missing: missing.length, magic: [...head].join(','),
+    jpegMagic: [...jpegHead].join(','), jpegType: big.blob.type,
+    stepped: capped.blob.size < big.blob.size, cappedFits: capped.fits, impossible: (await toPng(doc, { scale: 1, type: 'image/jpeg', maxBytes: 10 })).fits,
+  };
 });
 check('PNG export produces a real PNG', pngResult.magic === '137,80,78,71,13,10,26,10' && pngResult.bytes > 2000, `${pngResult.bytes}b ${pngResult.type}`);
 check('PNG export reports covers it had to placeholder', pngResult.missing === 1, `${pngResult.missing} missing`);
+check('Reddit image is a real JPEG', pngResult.jpegMagic === '255,216,255' && pngResult.jpegType === 'image/jpeg', `${pngResult.jpegMagic} ${pngResult.jpegType}`);
+check('JPEG export lowers quality to fit a byte cap', pngResult.stepped && pngResult.cappedFits);
+check('JPEG export says so when nothing fits the cap', pngResult.impossible === false);
 
 // ---- served under a strict CSP, the app must report zero violations ----
 const POLICY = [

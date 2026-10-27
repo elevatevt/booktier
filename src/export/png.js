@@ -173,13 +173,19 @@ function drawBadge(ctx, value, x, y, scale) {
 }
 
 /**
- * Render the document to a PNG blob.
+ * Render the document to an image blob — PNG by default.
+ * `type: 'image/jpeg'` is for upload targets with a size cap. Cover art is photographic, and
+ * PNG is the wrong codec for it: a 217-book board at scale 2 came out at 30 MB as PNG and
+ * about 6 MB as JPEG at 0.92, with the caption text still clean. `maxBytes` steps the JPEG
+ * quality down until the file fits; `fits` is false if even the lowest step does not.
  * `missing` is covers the item HAS but the store does not — the ones "Save covers" can fix.
  * Items with no cover at all come back as `noCover`: telling someone to save a cover that does
  * not exist is a false error, which is what the old single list produced.
- * @returns {Promise<{blob: Blob, width: number, height: number, missing: Array<{title:string,src:string}>, noCover: string[]}>}
+ * @returns {Promise<{blob: Blob, width: number, height: number, fits: boolean, missing: Array<{title:string,src:string}>, noCover: string[]}>}
  */
-export async function toPng(doc, { scale = 2, credit = true, labels, numbers = false } = {}) {
+export async function toPng(doc, {
+  scale = 2, credit = true, labels, numbers = false, type = 'image/png', maxBytes = Infinity,
+} = {}) {
   const S = Object.fromEntries(Object.entries(BASE).map(([k, v]) => [k, v * scale]));
   // Overrides rather than document edits: the Reddit flow wants titles and numbers on the image
   // without changing what the user's exported page or saved document look like.
@@ -309,8 +315,15 @@ export async function toPng(doc, { scale = 2, credit = true, labels, numbers = f
 
   for (const bitmap of bitmaps.values()) if (bitmap.close) bitmap.close();
 
-  const blob = await new Promise((resolve, reject) => {
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('PNG encode failed'))), 'image/png');
+  const encode = (quality) => new Promise((resolve, reject) => {
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('image encode failed'))), type, quality);
   });
-  return { blob, width: canvas.width, height: canvas.height, missing, noCover };
+  // PNG has no quality to trade, so it gets one attempt.
+  const steps = type === 'image/jpeg' ? [0.92, 0.85, 0.75, 0.65] : [undefined];
+  let blob;
+  for (const quality of steps) {
+    blob = await encode(quality);
+    if (blob.size <= maxBytes) break;
+  }
+  return { blob, width: canvas.width, height: canvas.height, fits: blob.size <= maxBytes, missing, noCover };
 }

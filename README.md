@@ -36,8 +36,8 @@ per-item link or hover metadata at all.
 - Export a standalone HTML page. No JavaScript, no build step, no external requests except the
   cover images themselves — or bake the saved covers into the file and it needs no network at all.
   The hover card is pure CSS and works on focus as well as hover.
-- Export a PNG for pasting into Reddit or Discord, drawn directly on a canvas with no
-  third-party library. Covers missing from the store become labeled placeholders rather than
+- Export a JPEG for pasting into Reddit or Discord, drawn directly on a canvas with no
+  third-party library, and kept under their 20 MB upload limit. Covers missing from the store become labeled placeholders rather than
   failing the export.
 - Export JSON, and import it again. An exported page can also be re-imported — the source
   document is embedded in it.
@@ -69,7 +69,7 @@ Drag them into tiers, then open **Export or share…**:
 | | |
 | --- | --- |
 | **Web page** | a standalone `.html` file to host anywhere |
-| **Image** | a `.png` for Reddit or Discord — press **Save covers** first |
+| **Image** | a `.jpg` for Reddit or Discord — press **Save covers** first |
 | **Share link** | a URL that opens the list as a finished reading page in someone else's browser |
 | **Post to Reddit** | a three-step flow: a numbered, titled image, then the matching link list as the first comment |
 | **JSON** | the document itself, the copy you own |

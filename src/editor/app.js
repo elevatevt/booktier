@@ -230,7 +230,10 @@ function parseBulk(text) {
 
 // ---------- files ----------
 
-const REDDIT_IMAGE_MAX_BYTES = 19 * 1e6;
+// Both image exports are JPEG under this cap: r/litrpg and Discord's free tier each allow 20 MB
+// per upload, and a long list of covers as PNG blows straight past that. 19 MB leaves room
+// whether a site means MB or MiB.
+const IMAGE_MAX_BYTES = 19 * 1e6;
 
 function download(filename, data, type) {
   const blob = data instanceof Blob ? data : new Blob([data], { type });
@@ -461,11 +464,9 @@ function bind() {
     try {
       const fetched = await ensureCoversFirst(button, 'Download image');
       button.textContent = 'Rendering…';
-      // JPEG, not PNG: r/litrpg caps an upload at 20 MB, and a long list of covers as PNG
-      // blows straight past that. 19 MB leaves room whether Reddit means MB or MiB.
       const { blob, width, height, fits, missing } = await toPng(doc, {
         scale: 2, labels: true, numbers: $('#md-numbers').checked,
-        type: 'image/jpeg', maxBytes: REDDIT_IMAGE_MAX_BYTES,
+        type: 'image/jpeg', maxBytes: IMAGE_MAX_BYTES,
       });
       download(`${slug(doc.title)}-reddit.jpg`, blob, 'image/jpeg');
       const mb = (blob.size / 1e6).toFixed(1);
@@ -568,14 +569,18 @@ function bind() {
     try {
       await ensureCoversFirst(button, 'Image');
       button.textContent = 'Rendering…';
-      const { blob, width, height, missing, noCover } = await toPng(doc, { scale: 2 });
-      download(`${slug(doc.title)}.png`, blob, 'image/png');
+      const { blob, width, height, fits, missing, noCover } = await toPng(doc, {
+        scale: 2, type: 'image/jpeg', maxBytes: IMAGE_MAX_BYTES,
+      });
+      download(`${slug(doc.title)}.jpg`, blob, 'image/jpeg');
       // Books with no cover at all are drawn as titled placeholders on purpose. Counting those
       // as failures told people to press Save covers, which could never help them.
       const note = missing.length
         ? ` ${missing.length} cover${missing.length === 1 ? '' : 's'} could not be fetched and appear as plain tiles — their host refuses to share the image.`
         : (noCover.length ? ` ${noCover.length} book${noCover.length === 1 ? '' : 's'} without a cover appear as titled tiles.` : '');
-      status(`Image exported at ${width}×${height}.${note}`, missing.length > 0);
+      const mb = (blob.size / 1e6).toFixed(1);
+      const over = fits ? '' : ' That is over the 20 MB upload limit on Reddit and Discord — split the list.';
+      status(`Image exported at ${width}×${height}, ${mb} MB.${over}${note}`, missing.length > 0 || !fits);
       await refreshStoreInfo();
     } catch (err) {
       status(`Image export failed: ${err.message}`, true);
